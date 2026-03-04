@@ -880,10 +880,22 @@ const ResumePage = () => {
     const handleReviewFileChange = (e) => {
         const file = e.target.files[0];
         if (file) {
-            if (file.type !== 'application/pdf') {
-                alert('Please upload a PDF file');
+            // Check if it's a PDF file (support multiple checks)
+            const isPDF = file.type === 'application/pdf' || 
+                        file.type === 'application/x-pdf' ||
+                        file.name.toLowerCase().endsWith('.pdf');
+            
+            if (!isPDF) {
+                alert('Please upload a PDF file (.pdf extension required)');
                 return;
             }
+            
+            // Check file size (5MB limit)
+            if (file.size > 5 * 1024 * 1024) {
+                alert('File size exceeds 5MB limit. Please upload a smaller PDF file.');
+                return;
+            }
+            
             navigate('/ats-score', {
                 state: {
                     uploadedFile: file

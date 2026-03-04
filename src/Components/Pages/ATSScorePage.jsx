@@ -95,6 +95,12 @@ const ATSScorePage = () => {
                 body: formData
             });
 
+            // Check if response is ok
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: 'Server error' }));
+                throw new Error(errorData.message || `Server error: ${response.status}`);
+            }
+
             const result = await response.json();
 
             if (result.success) {
@@ -112,14 +118,15 @@ const ATSScorePage = () => {
                     }
                 } catch (err) {
                     console.error("JSON Parse Error:", err, "Response received:", responseText);
-                    setScoreData(getMockData());
+                    setError("Failed to parse AI response. The PDF may not have been read correctly. Please try with a different PDF file.");
                 }
             } else {
-                setError(result.message);
+                setError(result.message || "Failed to analyze resume. Please ensure your PDF contains selectable text.");
             }
         } catch (err) {
             console.error("Fetch Error:", err);
-            setError("Failed to analyze resume. Please try again.");
+            const errorMessage = err.message || "Failed to analyze resume. Please try again.";
+            setError(errorMessage);
         } finally {
             setLoading(false);
         }
