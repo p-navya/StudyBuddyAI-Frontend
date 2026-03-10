@@ -677,6 +677,122 @@ const ResumePage = () => {
                 scaledHeight: scaledHeight
             });
 
+            // Build a text-only representation of the resume so the exported PDF
+            // still contains selectable text for ATS/parsing, even though the visual
+            // layout is rendered as an image.
+            try {
+                const lines = [];
+                if (formData.fullName) lines.push(formData.fullName);
+                if (formData.title) lines.push(formData.title);
+                lines.push('');
+
+                const contactParts = [];
+                if (formData.email) contactParts.push(`Email: ${formData.email}`);
+                if (formData.phone) contactParts.push(`Phone: ${formData.phone}`);
+                if (formData.address) contactParts.push(`Location: ${formData.address}`);
+                if (formData.linkedin) contactParts.push(`LinkedIn: ${formData.linkedin}`);
+                if (formData.github) contactParts.push(`GitHub: ${formData.github}`);
+                if (formData.portfolio) contactParts.push(`Portfolio: ${formData.portfolio}`);
+                if (contactParts.length) {
+                    lines.push(contactParts.join(' | '));
+                    lines.push('');
+                }
+
+                if (formData.summary) {
+                    lines.push('Summary');
+                    lines.push(formData.summary);
+                    lines.push('');
+                }
+
+                if (formData.skills && typeof formData.skills === 'object') {
+                    lines.push('Skills');
+                    Object.entries(formData.skills).forEach(([key, value]) => {
+                        if (value) {
+                            lines.push(`${key}: ${value}`);
+                        }
+                    });
+                    lines.push('');
+                }
+
+                if (Array.isArray(formData.experience) && formData.experience.length) {
+                    lines.push('Experience');
+                    formData.experience.forEach(exp => {
+                        const headerParts = [];
+                        if (exp.role) headerParts.push(exp.role);
+                        if (exp.company) headerParts.push(exp.company);
+                        if (exp.location) headerParts.push(exp.location);
+                        if (exp.period) headerParts.push(exp.period);
+                        if (headerParts.length) lines.push(headerParts.join(' | '));
+                        if (Array.isArray(exp.highlights)) {
+                            exp.highlights
+                                .filter(Boolean)
+                                .forEach(h => lines.push(`- ${h}`));
+                        }
+                        lines.push('');
+                    });
+                }
+
+                if (Array.isArray(formData.projects) && formData.projects.length) {
+                    lines.push('Projects');
+                    formData.projects.forEach(proj => {
+                        if (!proj) return;
+                        const nameLine = proj.name ? proj.name : '';
+                        const descLine = proj.description ? proj.description : '';
+                        if (nameLine) lines.push(nameLine);
+                        if (descLine) lines.push(`- ${descLine}`);
+                        if (nameLine || descLine) lines.push('');
+                    });
+                }
+
+                if (Array.isArray(formData.education) && formData.education.length) {
+                    lines.push('Education');
+                    formData.education.forEach(ed => {
+                        const headerParts = [];
+                        if (ed.degree) headerParts.push(ed.degree);
+                        if (ed.university) headerParts.push(ed.university);
+                        if (ed.period) headerParts.push(ed.period);
+                        if (ed.cgpa) headerParts.push(`CGPA: ${ed.cgpa}`);
+                        if (headerParts.length) lines.push(headerParts.join(' | '));
+                    });
+                    lines.push('');
+                }
+
+                if (Array.isArray(formData.achievements) && formData.achievements.length) {
+                    lines.push('Achievements');
+                    formData.achievements
+                        .filter(Boolean)
+                        .forEach(a => lines.push(`- ${a}`));
+                    lines.push('');
+                }
+
+                if (Array.isArray(formData.references) && formData.references.length) {
+                    lines.push('References');
+                    formData.references.forEach(ref => {
+                        if (!ref) return;
+                        const parts = [];
+                        if (ref.name) parts.push(ref.name);
+                        if (ref.role) parts.push(ref.role);
+                        if (ref.company) parts.push(ref.company);
+                        if (ref.phone) parts.push(`Phone: ${ref.phone}`);
+                        if (ref.email) parts.push(`Email: ${ref.email}`);
+                        if (parts.length) lines.push(parts.join(' | '));
+                    });
+                }
+
+                const plainText = lines.join('\n');
+                if (plainText.trim().length > 0) {
+                    pdf.setFontSize(10);
+                    pdf.setTextColor(0, 0, 0);
+                    // Draw the text first so it sits "under" the image visually,
+                    // but remains extractable in the PDF content stream.
+                    pdf.text(plainText, marginLeft, marginTop, {
+                        maxWidth: usableWidth
+                    });
+                }
+            } catch (textError) {
+                console.warn('Failed to embed text layer for PDF:', textError);
+            }
+
             // Only split into multiple pages if content is significantly taller than one page
             // Use a larger buffer to avoid unnecessary page breaks for single-page resumes
             if (scaledHeight > pdfHeight + 10) {
