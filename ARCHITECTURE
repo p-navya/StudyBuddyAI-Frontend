@@ -1,0 +1,590 @@
+## StudyBuddyAI – Architecture & Pseudocode
+
+This document describes the high-level flow and pseudocode for the `StudyBuddyAI-Frontend` and `StudyBuddyAI-Backend` projects.
+
+---
+
+## Frontend (StudyBuddyAI-Frontend)
+
+### App Bootstrap
+
+```text
+onPageLoad():
+  import React, ReactDOM
+  import App
+  import AuthProvider
+  import global styles
+
+  render(
+    <StrictMode>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </StrictMode>
+  ) into #root
+```
+
+```text
+App:
+  render():
+    return <Layout />
+```
+
+### Layout & Routing
+
+```text
+Layout:
+  render():
+    show:
+      - header / navbar
+      - <Routers /> (main content)
+      - footer
+```
+
+```text
+Routers:
+  define ProtectedRoute(children):
+    if auth.loading:
+      show full-screen "Loading..."
+    else if auth.isAuthenticated:
+      return children
+    else:
+      redirect to "/login"
+
+  define PublicRoute(children, redirectIfAuth = true):
+    if auth.loading:
+      show full-screen "Loading..."
+    else if redirectIfAuth AND auth.isAuthenticated:
+      redirect to "/dashboard"
+    else:
+      return children
+
+  define RoleBasedDashboard():
+    if user.role == "admin":   return <AdminDashboard />
+    if user.role == "mentor":  return <MentorDashboard />
+    else:                      return <UserDashboard />
+
+  routes:
+    "/"             -> <Home />
+    "/login"        -> <PublicRoute><Login /></PublicRoute>
+    "/signup"       -> <PublicRoute><Login /></PublicRoute>
+    "/dashboard"    -> <ProtectedRoute><RoleBasedDashboard /></ProtectedRoute>
+    "/chat"         -> <ProtectedRoute><ChatPage /></ProtectedRoute>
+    "/resume"       -> <ProtectedRoute><ResumePage /></ProtectedRoute>
+    "/resources"    -> <ProtectedRoute><ResourcesPage /></ProtectedRoute>
+    "/wellness"     -> <ProtectedRoute><WellnessPage /></ProtectedRoute>
+    "/study-groups" -> <ProtectedRoute><StudyGroupsPage /></ProtectedRoute>
+    "/achievements" -> <ProtectedRoute><AchievementsPage /></ProtectedRoute>
+    "/edit-profile" -> <ProtectedRoute><EditProfile /></ProtectedRoute>
+    "/ats-score"    -> <ProtectedRoute><ATSScorePage /></ProtectedRoute>
+    "*"             -> redirect to "/"
+```
+
+### Auth Context
+
+```text
+AuthProvider:
+  state:
+    user            // user object or null
+    isAuthenticated // bool
+    loading         // bool while checking token
+
+  onMount():
+    set loading = true
+    token = localStorage["token"]
+    if token exists:
+      try:
+        resp = authService.getCurrentUser()
+        if resp.success:
+          user = resp.data.user (+ first_login flag)
+          isAuthenticated = true
+        else:
+          logout()
+      catch:
+        logout()
+    set loading = false
+
+  login(userData, token, firstLoginFlag):
+    user = userData + { first_login: firstLoginFlag }
+    isAuthenticated = true
+    if token:
+      localStorage["token"] = token
+
+  logout():
+    user = null
+    isAuthenticated = false
+    remove token from localStorage
+
+  provide { user, loading, isAuthenticated, login, logout } via context
+```
+
+### API Client & Auth Services
+
+```text
+API_URL:
+  raw = env.VITE_API_URL or "http://localhost:5000/api"
+  if raw ends with "/api": use raw
+  else: append "/api" to raw (strip trailing "/")
+```
+
+```text
+apiRequest(endpoint, options):
+  token = localStorage["token"]
+
+  headers = {
+    "Content-Type": "application/json",
+    if token: "Authorization": "Bearer <token>",
+    ...options.headers
+  }
+
+  response = fetch(API_URL + endpoint, { ...options, headers })
+  data = parse JSON
+
+  if !response.ok:
+    throw Error(data.message or "Something went wrong")
+
+  return data
+```
+
+```text
+authService:
+  register(userData):
+    resp = apiRequest("/auth/register", POST JSON userData)
+    if resp.success and resp.data.token:
+      save token
+    return resp
+
+  login(credentials):
+    resp = apiRequest("/auth/login", POST JSON credentials)
+    if resp.success and resp.data.token:
+      save token
+    return resp
+
+  getCurrentUser():
+    return apiRequest("/auth/me", GET)
+
+  logout():
+    remove token
+
+  forgotPassword(email):
+    return apiRequest("/auth/forgot-password", POST { email })
+```
+
+```text
+passwordService:
+  changePassword(passwordData):
+    return apiRequest("/auth/change-password", PUT passwordData)
+```
+
+### Chatbot Service (Frontend)
+
+```text
+sendChatMessage(message, history = [], mode = "mental-support", file = null):
+  if file exists:
+    formData = new FormData()
+    formData["message"] = message
+    formData["conversationHistory"] = JSON.stringify(history)
+    formData["mode"] = mode
+    formData["file"] = file
+
+    token = localStorage["token"]
+    base = env.VITE_API_URL or "http://localhost:5000/api"
+
+    response = fetch(base + "/chatbot/chat", {
+      method: "POST",
+      headers: { "Authorization": "Bearer <token>" }, // no Content-Type
+      body: formData
+    })
+    data = JSON
+    if !response.ok: throw Error(data.message or "API request failed")
+    return data
+
+  else:
+    return apiRequest("/chatbot/chat", POST {
+      message,
+      conversationHistory: history,
+      mode
+    })
+
+getAvailableModels():
+  return apiRequest("/chatbot/models", GET)
+```
+
+### Key Pages (High-Level)
+
+```text
+Home:
+  show marketing sections (hero, features, modules, pricing, resources)
+  provide CTAs to login/signup
+
+Login/Signup:
+  capture credentials / registration data
+  call authService.login or authService.register
+  on success:
+    authContext.login(user, token, firstLogin)
+    redirect based on role to "/dashboard"
+
+UserDashboard:
+  fetch student-specific data (tasks, quizzes, resources, activity)
+  render overview cards and navigation links
+
+MentorDashboard:
+  fetch mentors list of students/groups and recent activity
+  allow mentor actions (e.g., group or resource management)
+
+AdminDashboard:
+  call /api/admin/stats and /api/admin/mentors
+  display counts of students/mentors/admins
+  allow creating mentors (form -> POST /api/admin/mentors)
+
+ChatPage:
+  maintain conversation history in state
+  when user sends message or uploads PDF:
+    call sendChatMessage()
+    append bot response to history
+
+ResumePage / ATSScorePage:
+  let user build or upload resume
+  send data to backend chatbot/ATS services
+  render feedback and ATS score
+
+ResourcesPage / WellnessPage / StudyGroupsPage / AchievementsPage / EditProfile:
+  call corresponding backend endpoints
+  render lists, detail views, and forms for updates
+```
+
+---
+
+## Backend (StudyBuddyAI-Backend)
+
+### Server Setup
+
+```text
+startup:
+  load .env
+  create express app
+
+  configure CORS:
+    allowedOrigins = [
+      "http://localhost:5173",
+      "https://studybuddy-project.vercel.app",
+      FRONTEND_URL from env
+    ] (non-empty)
+
+    for each request:
+      origin = request origin without trailing "/"
+      if origin in normalized allowedOrigins:
+        allow
+      else:
+        log "CORS blocked origin" and reject
+
+  use JSON and urlencoded parsers (limit 50mb)
+
+  test Supabase connection:
+    attempt simple select from "users" table
+    log success or error
+
+  mount routers:
+    "/api/auth"      -> authRoutes
+    "/api/users"     -> userRoutes
+    "/api/admin"     -> adminRoutes
+    "/api/chatbot"   -> chatbotRoutes
+    "/api/resources" -> resourceRoutes
+    "/api/groups"    -> groupRoutes
+    "/api/activity"  -> activityRoutes
+    "/api/quizzes"   -> quizRoutes
+    "/api/tasks"     -> taskRoutes
+
+  GET "/api/health":
+    return { status: "OK", message, timestamp }
+
+  error middleware:
+    log stack
+    respond { success: false, message, optional stack in dev }
+
+  404 handler:
+    respond { success: false, message: "Route not found" }
+
+  listen on PORT (env.PORT or 5000)
+```
+
+### Auth Middleware
+
+```text
+protect(req, res, next):
+  read Authorization header
+  if header starts with "Bearer ":
+    token = second part
+    try:
+      decoded = jwt.verify(token, secret)
+      user = Supabase "users".select(id, name, email, role).eq(id, decoded.id).single()
+      if user missing:
+        respond 401 "User not found"
+      else:
+        req.user = user
+        next()
+    catch:
+      respond 401 "Not authorized, token failed"
+  else:
+    respond 401 "Not authorized, no token"
+```
+
+```text
+authorize(...roles):
+  return (req, res, next):
+    if req.user.role not in roles:
+      respond 403 "User role '<role>' is not authorized"
+    else:
+      next()
+```
+
+### Auth Controller
+
+```text
+POST /api/auth/register
+
+register(req, res):
+  { name, email, password } = body
+  if any missing:
+    respond 400 "Please provide all required fields"
+
+  existingUser = Supabase users where email == given email
+  if exists:
+    respond 400 "User already exists with this email"
+
+  hashedPassword = bcrypt.hash(password)
+
+  user = insert into users:
+    { name, email, password: hashedPassword, role: "student" }
+  if error:
+    respond 400 with DB message
+
+  sendWelcomeEmail(email, name) asynchronously
+
+  token = jwt.sign(
+    { id: user.id, email: user.email, role: "authenticated", user_role: user.role },
+    secret,
+    expiresIn = 7d or env.JWT_EXPIRE
+  )
+
+  remove password from user object
+
+  respond 201 with:
+    success: true
+    message: "User registered successfully"
+    data: { token, user: userWithoutPassword }
+```
+
+```text
+POST /api/auth/login
+
+login(req, res):
+  { email, password } = body
+  if missing:
+    respond 400 "Please provide email and password"
+
+  user = Supabase users where email == given email
+  if not found:
+    respond 401 "Invalid credentials"
+
+  if !bcrypt.compare(password, user.password):
+    respond 401 "Invalid credentials"
+
+  token = jwt.sign(
+    { id: user.id, email: user.email, role: "authenticated", user_role: user.role },
+    secret,
+    expiresIn = 7d or env.JWT_EXPIRE
+  )
+
+  userWithoutPassword = user minus password
+
+  respond 200 with:
+    success: true
+    message: "Login successful"
+    data: {
+      token,
+      user: userWithoutPassword,
+      firstLogin: user.first_login or false
+    }
+```
+
+```text
+GET /api/auth/me  (protected)
+
+getMe(req, res):
+  user = Supabase users.select(id, name, email, role, avatar, first_login, created_at)
+                       .where id == req.user.id
+  if missing:
+    respond 404 "User not found"
+  else:
+    respond 200 with:
+      success: true
+      data: {
+        user,
+        firstLogin: user.first_login or false
+      }
+```
+
+```text
+POST /api/auth/forgot-password
+
+forgotPassword(req, res):
+  email = body.email
+  if missing:
+    respond 400 "Please provide an email"
+
+  user = Supabase users where email == email
+
+  if not found:
+    // don't leak existence in real apps
+    respond 200 "If an account exists, a reset link has been sent."
+
+  resetToken = random hex string
+  // (would be saved to DB with expiry in production)
+
+  emailSent = sendPasswordResetEmail(user.email, resetToken, user.name)
+
+  respond 200 with:
+    success: true
+    message: emailSent ? "Reset link sent to email" : "Failed to send email"
+```
+
+### Admin Controller & Routes
+
+```text
+adminRoutes:
+  use(protect)
+  use(authorize("admin"))
+
+  GET  "/stats"   -> getStats
+  POST "/mentors" -> createMentor
+  GET  "/mentors" -> getMentors
+```
+
+```text
+getStats(req, res):
+  studentCount = count users where role == "student"
+  mentorCount  = count users where role == "mentor"
+  adminCount   = count users where role == "admin"
+
+  respond 200 with:
+    success: true
+    data: {
+      students: studentCount or 0,
+      mentors: mentorCount or 0,
+      admins: adminCount or 0,
+      total: sum
+    }
+```
+
+```text
+createMentor(req, res):
+  { name, email, password } = body
+  if any missing:
+    respond 400 "Please provide name, email, and password"
+
+  if existing user with email:
+    respond 400 "User already exists with this email"
+
+  hashedPassword = bcrypt.hash(password)
+
+  mentor = insert into users:
+    { name, email, password: hashedPassword, role: "mentor", first_login: true }
+  if error:
+    respond 400 with DB message
+
+  emailSent = sendMentorCredentialsEmail({ mentorName: name, email, password })
+
+  respond 201 with:
+    success: true
+    message: "Mentor created successfully" + email status suffix
+    data: { mentor, emailSent }
+```
+
+```text
+getMentors(req, res):
+  mentors = users where role == "mentor" ordered by created_at desc
+  if error:
+    respond 400 with message
+  else:
+    respond 200 with:
+      success: true
+      count: mentors.length
+      data: { mentors }
+```
+
+### Chatbot Controller & Routes
+
+```text
+chatbotRoutes:
+  storage = multer.memoryStorage()
+  upload = multer({ storage, limits: { fileSize: 5MB } })
+
+  POST "/chat":
+    middlewares: protect, upload.single("file")
+    handler: chat
+
+  GET "/models":
+    middlewares: protect
+    handler: getModels
+```
+
+```text
+chat(req, res):
+  { message, conversationHistory = [], mode = "student-helper" } = body
+  contextData = ""
+
+  if req.file exists:
+    isPDF = check mimetype, extension ".pdf", or magic bytes "%PDF"
+    if not isPDF:
+      respond 400 "Only PDF files are currently supported"
+
+    try:
+      contextData = extractTextFromPDF(req.file.buffer)
+      if empty:
+        respond 400 "PDF appears to be empty or unreadable"
+    catch pdfError:
+      respond 400 "Failed to read PDF file: <details>"
+
+  if (message missing or blank) AND no file:
+    respond 400 "Message is required unless uploading a file"
+
+  parsedHistory =
+    if typeof conversationHistory == "string":
+      JSON.parse(conversationHistory)
+    else:
+      conversationHistory
+
+  result = getChatbotResponse(
+    message or "Please analyze this document.",
+    parsedHistory,
+    mode,
+    contextData
+  )
+
+  if !result.success:
+    respond 500 with { success: false, message, error }
+  else:
+    respond 200 with:
+      success: true
+      data: {
+        response: result.message,
+        model: result.model or "unknown",
+        usage: result.usage or {}
+      }
+```
+
+```text
+getModels(req, res):
+  models = getAvailableModels()
+  recommended = env.GROQ_API_KEY ? "groq" : "ollama"
+
+  respond 200 with:
+    success: true
+    data: { models, recommended }
+```
+
+---
+
+This pseudocode is intended for documentation and onboarding; it omits error edge cases and small implementation details while preserving the main flows and responsibilities.
+
