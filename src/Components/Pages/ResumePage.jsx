@@ -651,18 +651,19 @@ const ResumePage = () => {
             const imgWidth = canvas.width;
             const imgHeight = canvas.height;
             
-            // Calculate scaling: element is 210mm wide
-            // At 96 DPI: 210mm = 794px
-            // With scale 2: canvas should be ~1588px wide
-            // But we'll calculate based on actual canvas dimensions
-            
-            // Calculate mm per pixel: PDF is 210mm wide, canvas is imgWidth pixels
-            // This gives us the correct scaling factor
-            const mmPerPixel = pdfWidth / imgWidth;
+            // Add safe print margins around the page so text is never flush
+            // with the physical edge (some printers/viewers clip at 0mm).
+            const marginLeft = 10; // mm
+            const marginRight = 10; // mm
+            const marginTop = 10; // mm
+            const usableWidth = pdfWidth - marginLeft - marginRight;
+
+            // Calculate mm per pixel based on the usable content width instead of full page width.
+            const mmPerPixel = usableWidth / imgWidth;
             const imgHeightMm = imgHeight * mmPerPixel;
             
-            // Scale to fit PDF width exactly (210mm) - maintain aspect ratio
-            const scaledWidth = pdfWidth;
+            // Scale to fit within the usable width while maintaining aspect ratio.
+            const scaledWidth = usableWidth;
             const scaledHeight = imgHeightMm;
             
             // Debug logging (remove in production if needed)
@@ -710,18 +711,18 @@ const ResumePage = () => {
                     const pageHeightMm = pageHeightPx * mmPerPixel;
                     
                     // Add image for this page at exact position (0,0) to preserve alignment
-                    pdf.addImage(
+                pdf.addImage(
                         pageImgData,
                         'PNG',
-                        0,
-                        0,
+                        marginLeft,
+                        marginTop,
                         scaledWidth,
-                        Math.min(pageHeightMm, pdfHeight)
+                        Math.min(pageHeightMm, pdfHeight - marginTop)
                     );
                 }
             } else {
-                // Single page - add image at top-left corner (0,0) to preserve exact alignment
-                pdf.addImage(imgData, 'PNG', 0, 0, scaledWidth, scaledHeight);
+                // Single page - add image with left/top margins to prevent clipping on printers/PDF viewers
+                pdf.addImage(imgData, 'PNG', marginLeft, marginTop, scaledWidth, Math.min(scaledHeight, pdfHeight - marginTop));
             }
 
             // Restore original element styles
